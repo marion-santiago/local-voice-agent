@@ -4,7 +4,15 @@ This is a demo of a LiveKit [Voice Pipeline Agent](https://docs.livekit.io/agent
 
 The example includes a custom Next.js frontend and Python agent.
 
-## Prerequisites
+## Live Demo
+
+https://cartesia-assistant.vercel.app/
+
+![Screenshot of the Cartesia Voice Agent Example](.github/screenshot.png)
+
+## Running the example
+
+### Prerequisites
 
 - Node.js
 - Python 3.9-3.12
@@ -12,8 +20,6 @@ The example includes a custom Next.js frontend and Python agent.
 - Cartesia API key (for speech synthesis)
 - OpenAI API key (for LLM)
 - Deepgram API key (for speech-to-text)
-
-## Running the example
 
 ### Frontend
 
@@ -36,7 +42,3 @@ source venv/bin/activate
 pip install -r requirements.txt
 python main.py dev
 ```
-
-## Screenshot
-
-![Screenshot of the Cartesia Voice Agent Example](.github/screenshot.png)
