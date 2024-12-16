@@ -1,7 +1,6 @@
-livekit-agents
-livekit-plugins-openai
-livekit-plugins-deepgram
-livekit-plugins-silero
-livekit-plugins-cartesia
-python-dotenv
-requests
+faster-whisper>=1.1.0
+livekit-agents>=0.12.2
+livekit-plugins-openai>=0.10.10
+livekit-plugins-silero>=0.7.4
+python-dotenv>=1.0.1
+requests>=2.32.3

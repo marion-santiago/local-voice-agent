@@ -4,17 +4,21 @@ import os
 import requests
 
 from livekit import rtc
-from livekit.agents import JobContext, WorkerOptions, cli, JobProcess
+from livekit.agents import JobContext, WorkerOptions, cli, JobProcess, tokenize
+from livekit.agents import tts as base_tts
 from livekit.agents.llm import (
     ChatContext,
     ChatMessage,
 )
 from livekit.agents.pipeline import VoicePipelineAgent
 from livekit.agents.log import logger
-from livekit.plugins import deepgram, silero, cartesia, openai
+from livekit.plugins import silero, openai
 from typing import List, Any
 
 from dotenv import load_dotenv
+
+from plugins import whisper, xtts
+
 
 load_dotenv()
 
@@ -23,18 +27,15 @@ def prewarm(proc: JobProcess):
     # preload models when process starts to speed up first interaction
     proc.userdata["vad"] = silero.VAD.load()
 
-    # fetch cartesia voices
-
+    # fetch xtts voices
     headers = {
-        "X-API-Key": os.getenv("CARTESIA_API_KEY", ""),
-        "Cartesia-Version": "2024-08-01",
         "Content-Type": "application/json",
     }
-    response = requests.get("https://api.cartesia.ai/voices", headers=headers)
+    response = requests.get("http://localhost:8020/studio_speakers", headers=headers)
     if response.status_code == 200:
-        proc.userdata["cartesia_voices"] = response.json()
+        proc.userdata["xtts_voices"] = response.json()
     else:
-        logger.warning(f"Failed to fetch Cartesia voices: {response.status_code}")
+        logger.warning(f"Failed to fetch XTTS voices: {response.status_code}")
 
 
 async def entrypoint(ctx: JobContext):
@@ -42,20 +43,23 @@ async def entrypoint(ctx: JobContext):
         messages=[
             ChatMessage(
                 role="system",
-                content="You are a voice assistant created by LiveKit. Your interface with users will be voice. Pretend we're having a conversation, no special formatting or headings, just natural speech.",
+                content="You are a voice assistant created by LiveKit. Your interface with users will be voice. Pretend we're having a conversation, no special formatting or headings, just natural speech. Use short and concise responses.",
             )
         ]
     )
-    cartesia_voices: List[dict[str, Any]] = ctx.proc.userdata["cartesia_voices"]
 
-    tts = cartesia.TTS(
-        voice="248be419-c632-4f23-adf1-5324ed7dbf1d",
-    )
+    xtts_voices: List[str] = ctx.proc.userdata["xtts_voices"]
+
+    tts = xtts.TTS()
+
     agent = VoicePipelineAgent(
         vad=ctx.proc.userdata["vad"],
-        stt=deepgram.STT(),
-        llm=openai.LLM(model="gpt-4o-mini"),
-        tts=tts,
+        stt=whisper.STT(),
+        llm=openai.LLM.with_ollama(model="llama3.2"),
+        tts=base_tts.StreamAdapter(
+            tts=tts,
+            sentence_tokenizer=tokenize.basic.SentenceTokenizer(),
+        ),
         chat_ctx=initial_ctx,
     )
 
@@ -78,26 +82,16 @@ async def entrypoint(ctx: JobContext):
             if not voice_id:
                 return
 
-            voice_data = next(
-                (voice for voice in cartesia_voices if voice["id"] == voice_id), None
-            )
-            if not voice_data:
+            if voice_id not in xtts_voices:
                 logger.warning(f"Voice {voice_id} not found")
                 return
-            if "embedding" in voice_data:
-                model = "sonic-english"
-                language = "en"
-                if "language" in voice_data and voice_data["language"] != "en":
-                    language = voice_data["language"]
-                    model = "sonic-multilingual"
-                tts._opts.voice = voice_data["embedding"]
-                tts._opts.model = model
-                tts._opts.language = language
-                # allow user to confirm voice change as long as no one is speaking
-                if not (is_agent_speaking or is_user_speaking):
-                    asyncio.create_task(
-                        agent.say("How do I sound now?", allow_interruptions=True)
-                    )
+
+            tts._opts.voice = voice_id
+            # allow user to confirm voice change as long as no one is speaking
+            if not (is_agent_speaking or is_user_speaking):
+                asyncio.create_task(
+                    agent.say("How do I sound now?", allow_interruptions=True)
+                )
 
     await ctx.connect()
 
@@ -123,17 +117,18 @@ async def entrypoint(ctx: JobContext):
 
     # set voice listing as attribute for UI
     voices = []
-    for voice in cartesia_voices:
+    for voice in xtts_voices:
         voices.append(
             {
-                "id": voice["id"],
-                "name": voice["name"],
+                "id": voice,
+                "name": voice,
             }
         )
     voices.sort(key=lambda x: x["name"])
     await ctx.room.local_participant.set_attributes({"voices": json.dumps(voices)})
 
     agent.start(ctx.room)
+    await asyncio.sleep(3)
     await agent.say("Hi there, how are you doing today?", allow_interruptions=True)
 
 
